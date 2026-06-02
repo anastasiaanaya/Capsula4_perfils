@@ -3,10 +3,14 @@
   "version": "1.0.0",
   "main": "index.js",
   "dependencies": {
+    "@supabase/supabase-js": "^2.107.0",
     "expo": "~56.0.8",
+    "expo-image-picker": "^56.0.15",
+    "expo-location": "^56.0.15",
     "expo-status-bar": "~56.0.4",
     "react": "19.2.3",
-    "react-native": "0.85.3"
+    "react-native": "0.85.3",
+    "react-native-url-polyfill": "^3.0.0"
   },
   "scripts": {
     "start": "expo start",

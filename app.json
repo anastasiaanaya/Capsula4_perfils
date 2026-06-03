@@ -1,6 +1,7 @@
 {
   "expo": {
     "name": "Capsula4_perfil",
+    "scheme": "capsula4",
     "slug": "Capsula4_perfil",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -19,6 +20,9 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-router"
+    ]
   }
 }

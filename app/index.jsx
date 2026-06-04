@@ -6,13 +6,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Alert,
-  ActivityIndicator,
+  Alert,              //diàlegs natius del sistema operatiu
+  ActivityIndicator,  //roda de càrrega
   TextInput,
 } from 'react-native';
-import * as Location from 'expo-location';
-import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as Location from 'expo-location'; //accés al GPS
+import * as ImagePicker from 'expo-image-picker'; //Accés càmera i galeria i poder demanar permisos
+import * as FileSystem from 'expo-file-system/legacy'; //per llegir la foto que s'ha seleccionat i poder-la pujar al SupaBase
 import { supabase } from '../lib/supabase';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -39,8 +39,10 @@ export default function ProfileScreen() {
     setCoords(null);
 
     // 1. Demanar permís
+    // requestForegroundPermissionsAsync: mostra el diàleg natiu del sistema
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
+      // Si l'usuari prem "Denegar", sortim de la funció amb un missatge informatiu.
       Alert.alert(
         'Permís denegat',
         'Has denegat l\'accés a la localització. Pots canviar-ho des de la configuració del dispositiu.',
@@ -50,6 +52,8 @@ export default function ProfileScreen() {
     }
 
     // 2. Obtenir coordenades
+    // getCurrentPositionAsync: llegeix el GPS una sola vegada (no contínuament).
+    // accuracy: Balanced és un bon equilibri entre precisió i velocitat/bateria.
     const location = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.Balanced,
     });
@@ -57,21 +61,25 @@ export default function ProfileScreen() {
     setCoords({ latitude, longitude });
 
     // 3. Geocodificació inversa
+    // reverseGeocodeAsync: converteix coordenades en adreça física.
     const results = await Location.reverseGeocodeAsync({ latitude, longitude });
     if (results.length > 0) {
       const r = results[0];
       const parts = [r.street, r.streetNumber, r.city, r.region].filter(Boolean);
       setAddress(parts.join(', '));
     } else {
+      // Si no hi ha resultats, mostrem les coordenades en decimal.
+      // toFixed(5) arrodoneix a 5 decimals (precisió de ~1 metre).
       setAddress(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
     }
 
-    setLoadingGPS(false);
+    setLoadingGPS(false); //desactiva roda de càrrega
   };
 
   // ─── Càmera / Galeria ────────────────────────────────────────────────────────
   const pickImage = async (useCamera) => {
-    // Demanar permís corresponent
+    // useCamera: boolean. true = obrir càmera, false = obrir galeria.
+    // Demanem el permís corresponent segons d'on volem agafar la foto.
     if (useCamera) {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
@@ -87,12 +95,12 @@ export default function ProfileScreen() {
     }
 
     const fn = useCamera
-      ? ImagePicker.launchCameraAsync
-      : ImagePicker.launchImageLibraryAsync;
+      ? ImagePicker.launchCameraAsync //obre la cam del dispositiu
+      : ImagePicker.launchImageLibraryAsync; //obre el selector de fotos del dispositiu
 
     const result = await fn({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, //només imgs (no videos)
+      allowsEditing: true, // Mostra l'editor de retall abans de confirma
       aspect: [1, 1],  // quadrat, ideal per avatar
       quality: 0.7,
     });
@@ -105,6 +113,8 @@ export default function ProfileScreen() {
   };
 
   const showImageOptions = () => {
+    // Alert.alert amb array de botons mostra un diàleg d'acció natiu.
+    // En Android apareix com un diàleg; en iOS com un Action Sheet.
     Alert.alert('Foto de perfil', 'Escull una opció:', [
       { text: 'Càmera',  onPress: () => pickImage(true)  },
       { text: 'Galeria', onPress: () => pickImage(false) },
@@ -114,26 +124,35 @@ export default function ProfileScreen() {
 
   // ─── Pujar foto a Supabase Storage ──────────────────────────────────────────
   const uploadAvatar = async () => {
-    if (!avatarUri) return null;
+    if (!avatarUri) return null; // Guardià: si no hi ha foto, no fem res
 
     setLoadingPhoto(true);
 
     try {
+      // Extraiem l'extensió de la URI (ex: "jpg" o "png").
+      // .split('?')[0] elimina paràmetres GET que de vegades porten les URIs d'Expo
     const ext      = avatarUri.split('.').pop()?.split('?')[0] || 'jpg';
-    const fileName = `avatar_${Date.now()}.${ext}`;
+    const fileName = `avatar_${Date.now()}.${ext}`; // Date.now() retorna el timestamp actual en mil·lisegons 
     const mimeType = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
 
+    // CONVERSIÓ DE LA FOTO A BYTES
+    // Supabase Storage espera dades binàries, però tenim una URI local.
     // Llegir com a base64 i convertir a ArrayBuffer
     const base64 = await FileSystem.readAsStringAsync(avatarUri, {
       encoding: 'base64',
     });
 
-    const binary     = atob(base64);
-    const bytes      = new Uint8Array(binary.length);
+    //Decodificar de base64 a string binari
+      // atob() (ASCII To Binary) és una funció global del navegador/JS que converteix un string base64 en un string de caràcters binaris.
+    const binary = atob(base64);
+    // Convertir el string binari a un array de bytes (Uint8Array)
+    const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i);
     }
+    // charCodeAt(i) retorna el valor numèric del caràcter a la posició i.
 
+    // PUJADA A SUPABASE STORAGE
     const { data, error } = await supabase.storage
       .from(BUCKET_NAME)
       .upload(fileName, bytes.buffer, {
@@ -142,7 +161,10 @@ export default function ProfileScreen() {
       });
 
     if (error) throw new Error(error.message);
+    // throw atura l'execució i salta al bloc catch de sota
 
+    // OBTENIR LA URL PÚBLICA
+      // Supabase genera una URL permanent i accessible públicament per al fitxer
     const { data: urlData } = supabase.storage
       .from(BUCKET_NAME)
       .getPublicUrl(data.path);
@@ -153,24 +175,31 @@ export default function ProfileScreen() {
   } catch (err) {
     Alert.alert('Error pujant la foto', err.message);
     setLoadingPhoto(false);
-    return null;
+    return null; // Retornem null per indicar que la pujada ha fallat
   }
 };
 
   // ─── Guardar perfil a Supabase DB ────────────────────────────────────────────
   const handleSave = async () => {
+    // Validació: el nom és obligatori
     if (!name.trim()) {
+      // .trim() elimina espais en blanc dels extrems. Evita que " " sigui vàlid.
       Alert.alert('Falta el nom', 'Escriu el teu nom abans de guardar.');
       return;
     }
 
     setLoadingSave(true);
 
-    // Pujar foto si n'hi ha una de nova (local)
+    // Pujada de foto: només la pugem si:
+    // 1. Hi ha una foto seleccionada (avatarUri no és null)
+    // 2. Encara no s'ha pujat en aquesta sessió (avatarUrl és null)
+    // Això evita tornar a pujar la mateixa foto si l'usuari prem "Guardar" dues vegades.
     let finalAvatarUrl = avatarUrl;
     if (avatarUri && !avatarUrl) {
       finalAvatarUrl = await uploadAvatar();
       if (!finalAvatarUrl) {
+        // Si la pujada ha fallat, uploadAvatar ja ha mostrat l'error.
+        // Aturem el procés de guardar sense continuar.
         setLoadingSave(false);
         return;
       }
@@ -178,12 +207,15 @@ export default function ProfileScreen() {
     }
 
     // Guardar a la taula 'profiles'
+    // .upsert(): INSERT si no existeix, UPDATE si ja existeix
     const { error } = await supabase.from(TABLE_NAME).upsert({
       username:   name.trim(),
       avatar_url: finalAvatarUrl,
       address:    address,
       latitude:   coords?.latitude  ?? null,
       longitude:  coords?.longitude ?? null,
+      // coords?.latitude: optional chaining (?.) — si coords és null, no llança error,
+      // simplement retorna undefined. El ?? null converteix undefined en null.
       updated_at: new Date().toISOString(),
     });
 
@@ -192,7 +224,7 @@ export default function ProfileScreen() {
     if (error) {
       Alert.alert('Error guardant el perfil', error.message);
     } else {
-      setSaved(true);
+      setSaved(true); // Canvia el botó a "Guardat!" i el posa verd
       Alert.alert('✅ Perfil guardat', 'Les teves dades s\'han guardat correctament a Supabase.');
     }
   };
@@ -204,17 +236,20 @@ export default function ProfileScreen() {
       {/* Avatar */}
       <TouchableOpacity style={styles.avatarWrapper} onPress={showImageOptions}>
         {avatarUri ? (
+          //si hi ha URI, mostra la foto; si no, el placeholder
           <Image source={{ uri: avatarUri }} style={styles.avatar} />
         ) : (
           <View style={styles.avatarPlaceholder}>
             <Text style={styles.avatarPlaceholderText}>+{'\n'}Foto</Text>
           </View>
         )}
+        {/* Badge "✎" a la cantonada inferior dreta de l'avatar */}
         <View style={styles.avatarBadge}>
           <Text style={styles.avatarBadgeText}>✎</Text>
         </View>
       </TouchableOpacity>
 
+      {/* Indicador de càrrega de la foto — només visible mentre es puja */}
       {loadingPhoto && (
         <View style={styles.uploadingRow}>
           <ActivityIndicator size="small" color="#6c63ff" />
@@ -229,7 +264,10 @@ export default function ProfileScreen() {
         placeholder="El teu nom o àlies"
         placeholderTextColor="#888"
         value={name}
-        onChangeText={(t) => { setName(t); setSaved(false); }}
+        onChangeText={(t) => { // Es crida a cada tecla premuda
+          setName(t);                        // Actualitza el state amb el nou text
+          setSaved(false);                   // Reset: si l'usuari edita, cal tornar a guardar
+       }}
       />
 
       {/* Localització */}
@@ -238,7 +276,7 @@ export default function ProfileScreen() {
       <TouchableOpacity
         style={[styles.button, styles.buttonSecondary]}
         onPress={handleGetLocation}
-        disabled={loadingGPS}
+        disabled={loadingGPS} // Quan és true, el botó no respon als tocs
       >
         {loadingGPS ? (
           <ActivityIndicator color="#F0E6D3" />
@@ -247,6 +285,7 @@ export default function ProfileScreen() {
         )}
       </TouchableOpacity>
 
+      {/* Targeta d'adreça — només visible quan address té un valor */}
       {address && (
         <View style={styles.addressCard}>
           <Text style={styles.addressLabel}>Adreça detectada:</Text>
@@ -270,15 +309,17 @@ export default function ProfileScreen() {
         ) : (
           <Text style={styles.buttonText}>
             {saved ? '✅ Guardat!' : '💾 Guardar perfil'}
+            {/* si saved → "Guardat!", si no → "Guardar perfil" */}
           </Text>
         )}
       </TouchableOpacity>
 
-      {/* Info URL pública */}
+      {/* URL pública — només visible un cop la foto s'ha pujat correctament */}
       {avatarUrl && (
         <View style={styles.urlCard}>
           <Text style={styles.urlLabel}>URL pública de l'avatar:</Text>
           <Text style={styles.urlText} numberOfLines={3}>{avatarUrl}</Text>
+          {/* numberOfLines={3}: trunca el text a 3 línies màxim (afegeix "...") */}
         </View>
       )}
 
@@ -286,14 +327,7 @@ export default function ProfileScreen() {
   );
 }
 
-// ─── Paleta ───────────────────────────────────────────────────────────────────
-// Fons:      #2C1F3E  (lila molt fosc, tapa de llibre)
-// Superfície:#3D2B55  (lila fosc, pàgines interiors)
-// Card:      #4A3464  (lila mitjà, targetes)
-// Accent:    #C4A882  (marró daurat, filigrana)
-// Accent2:   #8B6B9E  (lila suau, secundari)
-// Text:      #F0E6D3  (crema, text principal)
-// TextSub:   #B39DBC  (lila clar, text secundari)
+
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
@@ -316,7 +350,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 120,
     height: 120,
-    borderRadius: 60,
+    borderRadius: 60,  // 60 = la meitat de 120 → fa el quadrat rodó (cercle perfecte)
     borderWidth: 3,
     borderColor: '#C4A882',
   },
@@ -329,7 +363,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 2,
     borderColor: '#C4A882',
-    borderStyle: 'dashed',
+    borderStyle: 'dashed',  // Vora puntejada per indicar que es pot tocar
   },
   avatarPlaceholderText: {
     color: '#C4A882',
@@ -357,10 +391,10 @@ const styles = StyleSheet.create({
 
   // Upload
   uploadingRow: {
-    flexDirection: 'row',
+    flexDirection: 'row',  // Posa els fills en horitzontal (per defecte és vertical)
     alignItems: 'center',
     marginBottom: 12,
-    gap: 8,
+    gap: 8,   // Espai entre els fills (spinner i text)
   },
   uploadingText: {
     color: '#C4A882',
@@ -369,7 +403,7 @@ const styles = StyleSheet.create({
 
   // Form
   label: {
-    alignSelf: 'flex-start',
+    alignSelf: 'flex-start',  // El label s'alinea a l'esquerra (ignora el alignItems: center del pare)
     fontSize: 11,
     fontWeight: '700',
     color: '#C4A882',
@@ -408,6 +442,7 @@ const styles = StyleSheet.create({
     borderColor: '#8B6B9E',
   },
   buttonSaved: {
+    // Modificador aplicat quan saved=true (sobreescriu buttonPrimary)
     backgroundColor: '#6B8E5A',
   },
   buttonText: {

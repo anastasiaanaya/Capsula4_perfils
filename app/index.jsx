@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from '../lib/supabase';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -117,30 +118,44 @@ export default function ProfileScreen() {
 
     setLoadingPhoto(true);
 
-    // Llegir la imatge com a blob
-    const response  = await fetch(avatarUri);
-    const blob      = await response.blob();
-    const ext       = avatarUri.split('.').pop() || 'jpg';
-    const fileName  = `avatar_${Date.now()}.${ext}`;
+    try {
+    const ext      = avatarUri.split('.').pop()?.split('?')[0] || 'jpg';
+    const fileName = `avatar_${Date.now()}.${ext}`;
+    const mimeType = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+
+    // Llegir com a base64 i convertir a ArrayBuffer
+    const base64 = await FileSystem.readAsStringAsync(avatarUri, {
+      encoding: 'base64',
+    });
+
+    const binary     = atob(base64);
+    const bytes      = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
 
     const { data, error } = await supabase.storage
       .from(BUCKET_NAME)
-      .upload(fileName, blob, { contentType: `image/${ext}` });
+      .upload(fileName, bytes.buffer, {
+        contentType: mimeType,
+        upsert: true,
+      });
 
-    if (error) {
-      Alert.alert('Error pujant la foto', error.message);
-      setLoadingPhoto(false);
-      return null;
-    }
+    if (error) throw new Error(error.message);
 
-    // Obtenir URL pública
     const { data: urlData } = supabase.storage
       .from(BUCKET_NAME)
       .getPublicUrl(data.path);
 
     setLoadingPhoto(false);
     return urlData.publicUrl;
-  };
+
+  } catch (err) {
+    Alert.alert('Error pujant la foto', err.message);
+    setLoadingPhoto(false);
+    return null;
+  }
+};
 
   // ─── Guardar perfil a Supabase DB ────────────────────────────────────────────
   const handleSave = async () => {
